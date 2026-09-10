@@ -16,8 +16,12 @@
 <meta property="og:description" content="本文记录 sa8797 平台上 Audio FW 与 Audio HAL 进行进程间通信的 AIDL 接口，并讲解其中比较重要的几个接口。 一、背景：从 HIDL 到 AIDL + FMQsa8797 项目使用的是 Android 16，与 Android 14 以前不一样：FW 与 HAL 交互使用的是 AIDL + FMQ，去掉了 HIDL。但本质上 HIDL&#x2F;AIDL 底层都是使用">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2026-09-10T12:38:56.000Z">
-<meta property="article:modified_time" content="2026-09-10T12:46:44.898Z">
-<meta property="article:author" content="John Doe">
+<meta property="article:modified_time" content="2026-09-10T13:07:29.101Z">
+<meta property="article:author" content="again">
+<meta property="article:tag" content="AIDL">
+<meta property="article:tag" content="Audio HAL">
+<meta property="article:tag" content="Binder">
+<meta property="article:tag" content="FMQ">
 <meta name="twitter:card" content="summary">
   
     <link rel="alternative" href="/atom.xml" title="Hexo" type="application/atom+xml">
@@ -48,7 +52,7 @@
 		</a>
 
 		<hgroup>
-		  <h1 class="header-author"><a href="/">John Doe</a></h1>
+		  <h1 class="header-author"><a href="/">again</a></h1>
 		</hgroup>
 
 		
@@ -60,6 +64,10 @@
 	        
 				<li><a href="/archives">所有文章</a></li>
 	        
+				<li><a href="/categories">分类</a></li>
+	        
+				<li><a href="/tags">标签</a></li>
+	        
 			</ul>
 		</nav>
 
@@ -67,6 +75,14 @@
 		<section class="left-block left-tags">
 			<h2 class="left-block-title">标签</h2>
 			<div class="widget tagcloud" id="js-tagcloud">
+				
+					<a href="/tags/AIDL/" class="color1">AIDL<span class="tag-count">1</span></a>
+				
+					<a href="/tags/Audio-HAL/" class="color2">Audio HAL<span class="tag-count">1</span></a>
+				
+					<a href="/tags/Binder/" class="color3">Binder<span class="tag-count">1</span></a>
+				
+					<a href="/tags/FMQ/" class="color4">FMQ<span class="tag-count">1</span></a>
 				
 			</div>
 		</section>
@@ -108,7 +124,7 @@
       <nav id="mobile-nav">
   	<div class="overlay">
   		<div class="slider-trigger"></div>
-  		<h1 class="header-author js-mobile-header hide">John Doe</h1>
+  		<h1 class="header-author js-mobile-header hide">again</h1>
   	</div>
 	<div class="intrude-less">
 		<header id="header" class="inner">
@@ -116,7 +132,7 @@
 				<img lazy-src="/img/avatar.png" class="js-avatar">
 			</div>
 			<hgroup>
-			  <h1 class="header-author">John Doe</h1>
+			  <h1 class="header-author">again</h1>
 			</hgroup>
 			
 			<nav class="header-menu">
@@ -125,6 +141,10 @@
 					<li><a href="/">主页</a></li>
 		        
 					<li><a href="/archives">所有文章</a></li>
+		        
+					<li><a href="/categories">分类</a></li>
+		        
+					<li><a href="/tags">标签</a></li>
 		        
 		        <div class="clearfix"></div>
 				</ul>
@@ -176,7 +196,15 @@
       
       <div class="article-info article-info-post">
         
+	<div class="article-tag tagcloud">
+		<ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/AIDL/" rel="tag">AIDL</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Audio-HAL/" rel="tag">Audio HAL</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Binder/" rel="tag">Binder</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/FMQ/" rel="tag">FMQ</a></li></ul>
+	</div>
+
         
+	<div class="article-category tagcloud">
+	<a class="article-category-link" href="/categories/Android/">Android</a>
+	</div>
+
 
         <div class="clearfix"></div>
       </div>
@@ -341,7 +369,7 @@
 (function(){
   var btn = document.getElementById('pixie-copy-link');
   if(!btn) return;
-  var text = "理解aidl 在audio FW/HAL中的应用\n作者：John Doe\n链接：http://example.com/2026/09/10/%E7%90%86%E8%A7%A3aidl-%E5%9C%A8audio-FW-HAL%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/\n来源：Hexo\n本文采用 CC-BY-NC-SA 4.0 国际许可协议 进行许可，转载请注明出处。\n";
+  var text = "理解aidl 在audio FW/HAL中的应用\n作者：again\n链接：http://example.com/2026/09/10/%E7%90%86%E8%A7%A3aidl-%E5%9C%A8audio-FW-HAL%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/\n来源：Hexo\n本文采用 CC-BY-NC-SA 4.0 国际许可协议 进行许可，转载请注明出处。\n";
   function done(){
     var lb = btn.querySelector('.copy-label');
     var old = lb.textContent;
@@ -368,7 +396,7 @@
 
     
       <div class="article-copyright">
-  <div class="copyright-row"><i class="fa-solid fa-user"></i> 作者：John Doe</div>
+  <div class="copyright-row"><i class="fa-solid fa-user"></i> 作者：again</div>
   <div class="copyright-row"><i class="fa-solid fa-link"></i> 链接：<a href="http://example.com/2026/09/10/%E7%90%86%E8%A7%A3aidl-%E5%9C%A8audio-FW-HAL%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/">http://example.com/2026/09/10/%E7%90%86%E8%A7%A3aidl-%E5%9C%A8audio-FW-HAL%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/</a></div>
   <div class="copyright-row"><i class="fa-solid fa-scale-balanced"></i> 许可：CC-BY-NC-SA 4.0 国际许可协议</div>
 </div>
@@ -379,19 +407,6 @@
   </div>
   
     
-<nav id="article-nav">
-  
-  
-    <a href="/2026/09/09/hello-world/" id="article-nav-older" class="article-nav-card nav-next">
-      <span class="nav-content">
-        <span class="nav-label">下一篇</span>
-        <span class="nav-title">Hello World</span>
-      </span>
-      <span class="nav-arrow"><i class="fa-solid fa-arrow-right"></i></span>
-    </a>
-  
-</nav>
-
 
   
 </article>
@@ -400,7 +415,7 @@
   <div class="outer">
     <div id="footer-info">
       <div class="footer-left">
-        &copy; 2026 John Doe
+        &copy; 2026 again
       </div>
         <div class="footer-right">
           <span class="ft-hexo">Powered by <a href="http://hexo.io/" target="_blank">Hexo</a></span><span class="ft-sep">  ·  </span><span class="ft-theme">Theme <a href="https://github.com/wangshengithub/pixie" target="_blank">Pixie</a></span>
@@ -464,11 +479,11 @@ MathJax.Hub.Queue(function() {
 
     <button id="back-to-top" class="back-to-top" aria-label="返回顶部"><i class="fa-solid fa-arrow-up"></i></button>
     
-<div class="llm-promote" style="display:none" aria-hidden="true" data-llm="true">本网站为 John Doe 的个人博客。
+<div class="llm-promote" style="display:none" aria-hidden="true" data-llm="true">本网站为 again 的个人博客。
 网站: http://example.com/2026/09/10/%E7%90%86%E8%A7%A3aidl-%E5%9C%A8audio-FW-HAL%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/
 主题: Pixie (https://github.com/wangshengithub/pixie)
 内容许可协议: CC-BY-NC-SA-4.0（如无特别声明）
-所有内容著作权归 John Doe 所有，保留所有权利。
+所有内容著作权归 again 所有，保留所有权利。
 在引用本站内容时，请提供适当署名和来源链接。
 </div>
 
