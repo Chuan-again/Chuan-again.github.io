@@ -68,13 +68,15 @@
 			<h2 class="left-block-title">标签</h2>
 			<div class="widget tagcloud" id="js-tagcloud">
 				
-					<a href="/tags/AIDL/" class="color1">AIDL<span class="tag-count">1</span></a>
+					<a href="/tags/AIDL/" class="color1">AIDL<span class="tag-count">2</span></a>
 				
-					<a href="/tags/Audio-HAL/" class="color2">Audio HAL<span class="tag-count">1</span></a>
+					<a href="/tags/Audio-HAL/" class="color2">Audio HAL<span class="tag-count">2</span></a>
 				
-					<a href="/tags/Binder/" class="color3">Binder<span class="tag-count">1</span></a>
+					<a href="/tags/Binder/" class="color3">Binder<span class="tag-count">2</span></a>
 				
 					<a href="/tags/FMQ/" class="color4">FMQ<span class="tag-count">1</span></a>
+				
+					<a href="/tags/VINTF/" class="color5">VINTF<span class="tag-count">1</span></a>
 				
 			</div>
 		</section>
@@ -163,6 +165,445 @@
 
       
       <div class="body-wrap">
+  
+    <article id="post-车载音频知识笔记-AIDL服务与VINTF机制" class="article article-type-post" itemscope itemprop="blogPost">
+  
+    <div class="article-meta">
+      <a href="/2026/09/11/%E8%BD%A6%E8%BD%BD%E9%9F%B3%E9%A2%91%E7%9F%A5%E8%AF%86%E7%AC%94%E8%AE%B0-AIDL%E6%9C%8D%E5%8A%A1%E4%B8%8EVINTF%E6%9C%BA%E5%88%B6/" class="article-date">
+  	<time datetime="2026-09-11T07:00:00.000Z" itemprop="datePublished">2026-09-11</time>
+</a>
+    </div>
+  
+  <div class="article-inner">
+    
+      <input type="hidden" class="isFancy" />
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="article-title" href="/2026/09/11/%E8%BD%A6%E8%BD%BD%E9%9F%B3%E9%A2%91%E7%9F%A5%E8%AF%86%E7%AC%94%E8%AE%B0-AIDL%E6%9C%8D%E5%8A%A1%E4%B8%8EVINTF%E6%9C%BA%E5%88%B6/">
+        Android 车载音频知识笔记 — AIDL 服务注册 / VINTF 校验 / NDK 后端 / binder 线程池
+        
+      </a>
+    </h1>
+  
+
+      </header>
+      
+    
+
+    
+
+    
+
+    <div class="article-entry" itemprop="articleBody">
+      
+        <p>本文整理 sa8797 平台音频链路（QTI audio-hal-ar + vendor 定制服务）中 AIDL 服务从加载、注册到校验的完整机制，覆盖 QTI AHAL 的 dlopen 加载模式、AutomotiveAudioControl 的注册结构解剖、servicemanager 的 VINTF 声明强制校验、AIDL 后端（NDK &#x2F; CPP）选型，以及 binder 线程池的建池与复用模式，最后附一份自定义服务（MyService）的集成与部署清单。</p>
+<blockquote>
+<p>代码库：<code>Y:\code\v6\android</code>（sa8797 平台）<br>涉及模块：<code>vendor/qcom/opensource/audio-hal-ar</code>（QTI AHAL）、<code>vendor/gwm/interfaces</code>（定制服务）、<code>frameworks/native</code>（servicemanager &#x2F; libbinder_ndk）</p>
+</blockquote>
+<h2 id="速查总览"><a href="#速查总览" class="headerlink" title="速查总览"></a>速查总览</h2><table>
+<thead>
+<tr>
+<th>#</th>
+<th>主题</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>QTI AHAL 加载模式</td>
+<td><code>audiohalservice.qti</code> 启动时按板级 <code>vendor_audio_interfaces.xml</code> 逐个 <code>dlopen</code> + <code>dlsym(method)</code> 拉起各 HAL 库，所有 audio HAL 服务都在这一个进程里</td>
+</tr>
+<tr>
+<td>2</td>
+<td>AutomotiveAudioControl</td>
+<td>整个目录经 <code>registerServices()</code> 只注册 <strong>1 个</strong>服务：<code>android.hardware.automotive.audiocontrol.IAudioControl/default</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>VINTF 声明强制校验</td>
+<td>标了 <code>@VintfStability</code> 的接口未在 VINTF manifest 声明 → servicemanager <strong>拒绝注册</strong>（<code>EX_ILLEGAL_ARGUMENT &quot;VINTF declaration error.&quot;</code>），注意是拒绝而非警告</td>
+</tr>
+<tr>
+<td>4</td>
+<td>AIDL NDK 后端</td>
+<td>生成基于 <code>libbinder_ndk</code> 的绑定（<code>::ndk::BnCInterface</code>、include 带 <code>aidl/</code> 前缀、模块名 <code>-ndk</code> 后缀），HAL &#x2F; vendor 服务标准选择</td>
+</tr>
+<tr>
+<td>5</td>
+<td>binder 线程池</td>
+<td>由主程序 <code>main()</code> 统一建池（16 线程）；库代码用 <code>ABinderProcess_isThreadPoolStarted()</code> 检查后<strong>复用</strong>，不自建</td>
+</tr>
+<tr>
+<td>6</td>
+<td>部署清单</td>
+<td>3 个 <code>.so</code> + VINTF fragment + service_contexts（+ sepolicy &#x2F; FCM），缺一不可</td>
+</tr>
+</tbody></table>
+<h2 id="一、QTI-AHAL-服务加载架构（dlopen-模式）"><a href="#一、QTI-AHAL-服务加载架构（dlopen-模式）" class="headerlink" title="一、QTI AHAL 服务加载架构（dlopen 模式）"></a>一、QTI AHAL 服务加载架构（dlopen 模式）</h2><h3 id="1-1-加载链路"><a href="#1-1-加载链路" class="headerlink" title="1.1 加载链路"></a>1.1 加载链路</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">audiohalservice.qti: main()                       ← primary-hal/hal/service/Service.cpp</span><br><span class="line">  ├─ L116  ABinderProcess_setThreadPoolMaxThreadCount(16)</span><br><span class="line">  ├─ L117  ABinderProcess_startThreadPool()       ← 线程池先在主程序建好</span><br><span class="line">  ├─ L119  registerAvailableInterfaces()</span><br><span class="line">  │     └─ registerFromConfigs() → parseInterfaces()      ← ConfigManager.cpp</span><br><span class="line">  │           └─ 读取 vendor_audio_interfaces.xml</span><br><span class="line">  │                （在 audio_get_configuration_paths() 搜索路径中找，DEFAULT_NAME 常量）</span><br><span class="line">  │                 └─ registerServiceImplementation()     ← Service.cpp L31-51</span><br><span class="line">  │                       dlopen(库) + dlsym(method) + 调用</span><br><span class="line">  └─ L124  ABinderProcess_joinThreadPool()</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-2-板级接口配置（gen5-au）"><a href="#1-2-板级接口配置（gen5-au）" class="headerlink" title="1.2 板级接口配置（gen5_au）"></a>1.2 板级接口配置（gen5_au）</h3><p><code>configs/gen5_au/vendor_audio_interfaces_VIOSND.xml</code>：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">library</span> <span class="attr">name</span>=<span class="string">&quot;audiocontrolService&quot;</span> <span class="attr">libraryName</span>=<span class="string">&quot;libAutomotiveAudioControl.so&quot;</span></span></span><br><span class="line"><span class="tag">         <span class="attr">method</span>=<span class="string">&quot;registerServices&quot;</span> <span class="attr">mandatory</span>=<span class="string">&quot;true&quot;</span> /&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">library</span> <span class="attr">name</span>=<span class="string">&quot;audiohal-qti&quot;</span> <span class="attr">libraryName</span>=<span class="string">&quot;libaudiocorehal.qti.so&quot;</span></span></span><br><span class="line"><span class="tag">         <span class="attr">method</span>=<span class="string">&quot;registerServices&quot;</span> <span class="attr">mandatory</span>=<span class="string">&quot;true&quot;</span> /&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">library</span> <span class="attr">name</span>=<span class="string">&quot;palservice&quot;</span> <span class="attr">libraryName</span>=<span class="string">&quot;libpalipcservice.so&quot;</span> <span class="attr">...</span> /&gt;</span></span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>要点：</p>
+<ul>
+<li>新增独立服务库 → 在此 xml 加 <code>&lt;library&gt;</code> 条目（声明库名 + 导出函数名）</li>
+<li>挂到已有库里的服务（如 MyService 挂 ModulePrimary）→ 不需要动此 xml</li>
+<li><code>vendor.audio.hal.stubmode</code> 属性打开时会走 <code>registerDefaultInterfaces()</code> 的兜底列表</li>
+<li><code>mandatory=true</code> 当前不会真正 fatal（<code>gFatalIfMandatoryInterfaceMissing=false</code>，代码留有 TODO）</li>
+</ul>
+<h3 id="1-3-服务注册的两种接入模式"><a href="#1-3-服务注册的两种接入模式" class="headerlink" title="1.3 服务注册的两种接入模式"></a>1.3 服务注册的两种接入模式</h3><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>做法</th>
+<th>代表</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>独立库</td>
+<td>自己的 .so 导出 <code>registerServices()</code>，板级 xml 声明</td>
+<td>AutomotiveAudioControl</td>
+</tr>
+<tr>
+<td>挂载既有库</td>
+<td>在已有 registerServices 链里加调用（QTI <code>ModulePrimary</code> 构造函数）</td>
+<td>MyService &#x2F; NoboAudioService</td>
+</tr>
+</tbody></table>
+<h2 id="二、案例：AutomotiveAudioControl-服务注册结构"><a href="#二、案例：AutomotiveAudioControl-服务注册结构" class="headerlink" title="二、案例：AutomotiveAudioControl 服务注册结构"></a>二、案例：AutomotiveAudioControl 服务注册结构</h2><blockquote>
+<p>目录：<code>vendor/gwm/interfaces/impl/audio/AutomotiveAudioControl/default/</code><br>（<code>NoboAudioControl/</code> 是它的实现子目录）</p>
+</blockquote>
+<h3 id="2-1-结论：只注册-1-个-binder-服务"><a href="#2-1-结论：只注册-1-个-binder-服务" class="headerlink" title="2.1 结论：只注册 1 个 binder 服务"></a>2.1 结论：只注册 1 个 binder 服务</h3><p><strong><code>android.hardware.automotive.audiocontrol.IAudioControl/default</code></strong></p>
+<p>VINTF 声明（构建产物 <code>out/.../vendor/etc/vintf/manifest/audiocontrol-default.xml</code>）：<br><code>&lt;name&gt;android.hardware.automotive.audiocontrol&lt;/name&gt;</code> + <code>&lt;version&gt;5&lt;/version&gt;</code> + <code>&lt;fqname&gt;IAudioControl/default&lt;/fqname&gt;</code></p>
+<h3 id="2-2-注册点：default-Service-cpp"><a href="#2-2-注册点：default-Service-cpp" class="headerlink" title="2.2 注册点：default&#x2F;Service.cpp"></a>2.2 注册点：default&#x2F;Service.cpp</h3><figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// L29-36 注册 lambda</span></span><br><span class="line"><span class="keyword">auto</span> registerBinderAsService = [](<span class="keyword">auto</span> &amp;&amp;binder, <span class="type">const</span> std::string &amp;serviceName) &#123;</span><br><span class="line">    <span class="type">binder_exception_t</span> status = <span class="built_in">AServiceManager_addService</span>(binder.<span class="built_in">get</span>(), serviceName.<span class="built_in">c_str</span>());</span><br><span class="line">    ...</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="comment">// L38-51 组装 + 注册</span></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">registerAudioControl</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    gAudioControl = ndk::SharedRefBase::<span class="built_in">make</span>&lt;AudioControl&gt;();</span><br><span class="line">    std::shared_ptr&lt;GWMAudioControl&gt; pGwmAudioControl = ndk::SharedRefBase::<span class="built_in">make</span>&lt;GWMAudioControl&gt;();</span><br><span class="line">    gAudioControl-&gt;<span class="built_in">setExtension</span>(pGwmAudioControl);            <span class="comment">// 挂载扩展（不注册）</span></span><br><span class="line">    <span class="type">const</span> std::string kServiceName = std::<span class="built_in">string</span>(gAudioControl-&gt;descriptor).<span class="built_in">append</span>(<span class="string">&quot;/default&quot;</span>);</span><br><span class="line">    registerBinderAsService(gAudioControl-&gt;<span class="built_in">asBinder</span>(), kServiceName);   <span class="comment">// ← 唯一的 addService</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// L53-57 导出给 QTI 的入口符号</span></span><br><span class="line"><span class="keyword">extern</span> <span class="string">&quot;C&quot;</span> __attribute__((<span class="built_in">visibility</span>(<span class="string">&quot;default&quot;</span>))) <span class="function"><span class="type">int32_t</span> <span class="title">registerServices</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    registerAudioControl();</span><br><span class="line">    <span class="keyword">return</span> STATUS_OK;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>descriptor 字面量（生成代码 <code>IAudioControl.cpp</code>）：<br><code>const char* IAudioControl::descriptor = &quot;android.hardware.automotive.audiocontrol.IAudioControl&quot;;</code></p>
+<h3 id="2-3-两个易错点"><a href="#2-3-两个易错点" class="headerlink" title="2.3 两个易错点"></a>2.3 两个易错点</h3><ol>
+<li><p><strong>类名 <code>BnAudioControl</code> ≠ 接口名 <code>IAudioControl</code></strong><br>AIDL 生成 Bn&#x2F;Bp 类时会去掉接口名的 <code>I</code> 前缀：<br><code>IAudioControl</code> → <code>BnAudioControl.h</code> &#x2F; <code>BpAudioControl.h</code> + 接口头 <code>IAudioControl.h</code><br>同理 <code>IFocusListener</code> → <code>BnFocusListener.h</code>、<code>IMyService</code> → <code>BnMyService.h</code><br>所以服务名是 <code>.IAudioControl/default</code>，<strong>不是</strong> <code>.AudioControl/default</code></p>
+</li>
+<li><p><strong><code>GWMAudioControl</code> 不是第二个服务</strong><br>它是 <code>BnGWMAudioControl</code> 子类（IGWMAudioControl 接口的实现），但只通过 <code>setExtension()</code> 挂到 AudioControl 上；<br>客户端调的 36 个 <code>gwm_*</code> 方法是直接加在 <code>IAudioControl.aidl</code> 里的，走同一个 binder</p>
+</li>
+</ol>
+<h3 id="2-4-干扰项与死代码识别"><a href="#2-4-干扰项与死代码识别" class="headerlink" title="2.4 干扰项与死代码识别"></a>2.4 干扰项与死代码识别</h3><table>
+<thead>
+<tr>
+<th>对象</th>
+<th>真相</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>NoboAudioControl_AHal.cpp</code></td>
+<td><strong>死代码</strong>：未进 Android.mk 源列表、全树 0 引用；内容是反向逻辑（客户端连 <code>android.hardware.audio.core.IModule/default</code>），不是服务端注册</td>
+</tr>
+<tr>
+<td><code>PowerPolicyClient</code></td>
+<td>在 <code>registerAudioControl()</code> 里整段被注释</td>
+</tr>
+<tr>
+<td><code>audiocontrol-default.rc</code></td>
+<td>定义了 init 服务但没有对应二进制被编译，rc 也未进镜像 — 历史遗留</td>
+</tr>
+<tr>
+<td><code>Android.bp_bk</code></td>
+<td>备份文件（文件名不是 Android.bp），不参与构建；其中 <code>init_rc</code> 是注释状态</td>
+</tr>
+</tbody></table>
+<h3 id="2-5-分析方法论（查任意目录注册了什么服务）"><a href="#2-5-分析方法论（查任意目录注册了什么服务）" class="headerlink" title="2.5 分析方法论（查任意目录注册了什么服务）"></a>2.5 分析方法论（查任意目录注册了什么服务）</h3><ol>
+<li><code>grep -rn &quot;AServiceManager_addService\|registerAsService\|addService&quot; &lt;目录&gt;</code> 找注册点</li>
+<li>看 <code>Android.mk</code>&#x2F;<code>Android.bp</code> 源文件列表 → 判断哪些 .cpp 真的被编译（排除死代码）</li>
+<li>追踪导出符号（如 <code>registerServices</code>）被谁 <code>dlsym</code> 调用（查 QTI 的 Service.cpp + 板级 xml）</li>
+<li>用 <code>out/soong</code>（生成物）与 <code>out/target/product</code>（安装物）做最终确认</li>
+</ol>
+<h2 id="三、servicemanager-的-VINTF-声明强制校验"><a href="#三、servicemanager-的-VINTF-声明强制校验" class="headerlink" title="三、servicemanager 的 VINTF 声明强制校验"></a>三、servicemanager 的 VINTF 声明强制校验</h2><h3 id="3-1-机制概述"><a href="#3-1-机制概述" class="headerlink" title="3.1 机制概述"></a>3.1 机制概述</h3><p>标了 <code>@VintfStability</code> 的 AIDL 接口，其服务实例必须事先在设备 VINTF manifest 中声明，否则 servicemanager 会<strong>拒绝注册</strong>。声明缺失时，日志中会出现如下内容（INFO 级别，容易被误认为普通警告）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Could not find &lt;package&gt;.&lt;interface&gt;/&lt;instance&gt; in the VINTF manifest.</span><br><span class="line">No alternative instances declared in VINTF.</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-校验链路（源码级）"><a href="#3-2-校验链路（源码级）" class="headerlink" title="3.2 校验链路（源码级）"></a>3.2 校验链路（源码级）</h3><p><code>frameworks/native/cmds/servicemanager/ServiceManager.cpp</code> 的 <code>addService()</code> 检查顺序：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// L512-541</span></span><br><span class="line"><span class="number">1.</span> app UID 拒绝（AID_APP 以上不能注册服务）</span><br><span class="line"><span class="number">2.</span> <span class="built_in">canAddService</span>()        ← SELinux 检查（L1130<span class="number">-1134</span>，失败报 <span class="string">&quot;SELinux denied for service.&quot;</span>）</span><br><span class="line"><span class="number">3.</span> <span class="built_in">isValidServiceName</span>()   ← 名字格式（字母/数字/_-./，≤<span class="number">127</span> 字符）</span><br><span class="line"><span class="number">4.</span> <span class="built_in">meetsDeclarationRequirements</span>()  ← VINTF 检查（L536<span class="number">-541</span>）</span><br><span class="line">     <span class="keyword">if</span> (!<span class="built_in">meetsDeclarationRequirements</span>(ctx, binder, name))</span><br><span class="line">         <span class="keyword">return</span> EX_ILLEGAL_ARGUMENT, <span class="string">&quot;VINTF declaration error.&quot;</span>;   ← 注册被拒</span><br></pre></td></tr></table></figure>
+
+<p><code>meetsDeclarationRequirements</code>（L342-349）：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (!Stability::requiresVintfDeclaration(binder)) <span class="keyword">return</span> <span class="literal">true</span>;   <span class="comment">// 非 @VintfStability 接口跳过</span></span><br><span class="line"><span class="keyword">return</span> <span class="built_in">isVintfDeclared</span>(ctx, name);                               <span class="comment">// 必须能在 VINTF manifest 找到</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>Stability::requiresVintfDeclaration()</code> 实现在 <code>frameworks/native/libs/binder/Stability.cpp</code> L68-70：绑定对象稳定性级别为 VINTF（即接口标了 <code>@VintfStability</code>）时返回 true</li>
+<li><code>isVintfDeclared()</code>（L144-199）：把服务名拆成 <code>package / iface / instance</code>（AidlName），遍历 device + framework 两个 manifest 查 <code>hasAidlInstance()</code></li>
+<li>找不到时打印上述日志并 return false → 注册被拒</li>
+</ul>
+<h3 id="3-3-manifest-来源与缓存机制"><a href="#3-3-manifest-来源与缓存机制" class="headerlink" title="3.3 manifest 来源与缓存机制"></a>3.3 manifest 来源与缓存机制</h3><ul>
+<li>Device manifest &#x3D; <code>/vendor/etc/vintf/manifest.xml</code> + <strong>fragments</strong>（<code>/vendor/etc/vintf/manifest/*.xml</code>），运行时由 libvintf 合并</li>
+<li><code>VintfObject::GetInstance()</code> 是<strong>单例缓存</strong>：servicemanager 启动后第一次读取就缓存，之后不再重读</li>
+<li><strong>改了 fragment 必须重启整机（或 servicemanager）才生效</strong>；仅重启音频 HAL 进程无效</li>
+</ul>
+<h3 id="3-4-报错日志对照表"><a href="#3-4-报错日志对照表" class="headerlink" title="3.4 报错日志对照表"></a>3.4 报错日志对照表</h3><table>
+<thead>
+<tr>
+<th>日志</th>
+<th>含义</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SELinux: No match for &lt;name&gt; in service_contexts</code></td>
+<td>service_contexts 缺服务名→label 映射</td>
+<td>补 <code>vendor_service_contexts</code></td>
+</tr>
+<tr>
+<td><code>SELinux denied for service.</code></td>
+<td>域对目标 label 无 add 权限</td>
+<td>补 te 规则</td>
+</tr>
+<tr>
+<td><code>Could not find ... in the VINTF manifest</code></td>
+<td>fragment 缺失或更新后未重启</td>
+<td>补 fragment + 重启</td>
+</tr>
+<tr>
+<td><code>Found &lt;name&gt; in device VINTF manifest.</code></td>
+<td>校验通过（成功标志）</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<h3 id="3-5-部署与验证要点"><a href="#3-5-部署与验证要点" class="headerlink" title="3.5 部署与验证要点"></a>3.5 部署与验证要点</h3><ul>
+<li>manifest fragment（如 <code>my-service-manifest.xml</code>）需放到 <code>/vendor/etc/vintf/manifest/</code> 目录下</li>
+<li>更新 fragment 后必须重启整机（或 servicemanager）才生效（VintfObject 启动缓存）</li>
+<li>验证：<code>service list</code> 能查到服务名；servicemanager 日志出现 <code>Found ... in device VINTF manifest.</code></li>
+</ul>
+<h3 id="3-6-fqname-拼装规则"><a href="#3-6-fqname-拼装规则" class="headerlink" title="3.6 fqname 拼装规则"></a>3.6 fqname 拼装规则</h3><p>Manifest fragment 的 <code>&lt;name&gt;</code> + <code>&lt;fqname&gt;</code> 拼接结果必须严格等于注册名：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&lt;name&gt;vendor.gwm.myservice&lt;/name&gt;  +  &lt;fqname&gt;IMyService/default&lt;/fqname&gt;</span><br><span class="line">   → vendor.gwm.myservice.IMyService/default   ✓ 与 descriptor + &quot;/default&quot; 一致</span><br></pre></td></tr></table></figure>
+
+<h2 id="四、AIDL-后端：NDK-vs-CPP"><a href="#四、AIDL-后端：NDK-vs-CPP" class="headerlink" title="四、AIDL 后端：NDK vs CPP"></a>四、AIDL 后端：NDK vs CPP</h2><h3 id="4-1-什么是”后端”"><a href="#4-1-什么是”后端”" class="headerlink" title="4.1 什么是”后端”"></a>4.1 什么是”后端”</h3><p>AIDL 是接口定义语言；<code>aidl_interface</code> 模块的 <code>backend &#123;&#125;</code> 块决定从同一份 <code>.aidl</code> 生成<strong>哪种语言&#x2F;运行时</strong>的绑定代码。共 4 种：<strong>ndk、cpp、java、rust</strong>。</p>
+<p><strong>NDK 后端 &#x3D; 生成基于 <code>libbinder_ndk</code> 的 C++ 绑定</strong>（底层是 ABI 稳定的纯 C 接口 <code>AIBinder_*</code>）。注意这里的 “NDK” 不是指 NDK 工具链，而是指绑定跑在 libbinder_ndk 上。HAL &#x2F; vendor 服务（MyService、NoboAudioService、audiocontrol）用的全是它。</p>
+<h3 id="4-2-Soong-默认行为"><a href="#4-2-Soong-默认行为" class="headerlink" title="4.2 Soong 默认行为"></a>4.2 Soong 默认行为</h3><p><code>system/tools/aidl/build/aidl_interface.go</code> L552-581：<strong>四个后端默认全部 enabled&#x3D;true</strong>（注释：故意的，让开发者显式关闭不需要的）。所以：</p>
+<ul>
+<li>AOSP 的 audiocontrol：<code>-V5-cpp</code> &#x2F; <code>-V5-java</code> &#x2F; <code>-V5-ndk</code> 三套都生成</li>
+<li>本工程的 MyService：显式 <code>cpp: &#123; enabled: false &#125;</code> → 生成 <code>-V1-java</code> &#x2F; <code>-V1-ndk</code> &#x2F; <code>-V1-rust</code> 三套</li>
+</ul>
+<h3 id="4-3-对比表"><a href="#4-3-对比表" class="headerlink" title="4.3 对比表"></a>4.3 对比表</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th><strong>NDK 后端</strong>（工程在用）</th>
+<th>CPP 后端（libbinder 老式）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>运行时库</td>
+<td><code>libbinder_ndk</code>（C API + 薄 C++ 封装 <code>ndk::</code>）</td>
+<td><code>libbinder</code>（C++，<code>sp&lt;&gt;</code>&#x2F;<code>IBinder</code>）</td>
+</tr>
+<tr>
+<td>命名空间</td>
+<td><code>aidl::vendor::gwm::myservice</code></td>
+<td><code>android::hardware::...</code>（无 <code>aidl::</code>）</td>
+</tr>
+<tr>
+<td>服务端基类</td>
+<td><code>BnMyService : ::ndk::BnCInterface&lt;IMyService&gt;</code></td>
+<td><code>BnAudioControl : ::android::BnInterface&lt;IAudioControl&gt;</code></td>
+</tr>
+<tr>
+<td>include 路径</td>
+<td><code>&lt;aidl/vendor/gwm/myservice/BnMyService.h&gt;</code>（带 <code>aidl/</code>）</td>
+<td><code>&lt;android/hardware/.../BnFoo.h&gt;</code>（不带）</td>
+</tr>
+<tr>
+<td>返回&#x2F;指针类型</td>
+<td><code>ndk::ScopedAStatus</code>、<code>ndk::SharedRefBase::make&lt;T&gt;()</code>、<code>ndk::SpAIBinder</code></td>
+<td><code>android::binder::Status</code>、<code>sp&lt;&gt;</code>、<code>wp&lt;&gt;</code></td>
+</tr>
+<tr>
+<td>注册 API</td>
+<td><code>AServiceManager_addService</code> &#x2F; <code>_checkService</code></td>
+<td><code>defaultServiceManager()-&gt;addService</code></td>
+</tr>
+<tr>
+<td>Soong 模块名</td>
+<td><code>&lt;name&gt;-V1-ndk</code></td>
+<td><code>&lt;name&gt;-V1-cpp</code></td>
+</tr>
+<tr>
+<td>ABI 稳定性</td>
+<td><strong>纯 C ABI，跨版本稳定</strong></td>
+<td>C++ ABI 不稳定，平台内部使用</td>
+</tr>
+</tbody></table>
+<h3 id="4-4-生成物对比（同一接口两套，基类完全不同）"><a href="#4-4-生成物对比（同一接口两套，基类完全不同）" class="headerlink" title="4.4 生成物对比（同一接口两套，基类完全不同）"></a>4.4 生成物对比（同一接口两套，基类完全不同）</h3><ul>
+<li>CPP 版：<code>out/soong/...-V5-cpp-source/gen/.../BnAudioControl.h</code><br><code>class BnAudioControl : public ::android::BnInterface&lt;IAudioControl&gt;</code></li>
+<li>NDK 版：<code>out/soong/...-V5-ndk-source/gen/include/aidl/.../BnAudioControl.h</code><br><code>class BnAudioControl : public ::ndk::BnCInterface&lt;IAudioControl&gt;</code></li>
+</ul>
+<p>工程代码 include 的是带 <code>aidl/</code> 前缀的版本 → 用的 NDK 后端；链接的也是 <code>android.hardware.automotive.audiocontrol-V5-ndk</code>。</p>
+<h3 id="4-5-为什么-HAL-服务都选-NDK-后端"><a href="#4-5-为什么-HAL-服务都选-NDK-后端" class="headerlink" title="4.5 为什么 HAL 服务都选 NDK 后端"></a>4.5 为什么 HAL 服务都选 NDK 后端</h3><ol>
+<li><strong>ABI 稳定</strong>：只暴露 C ABI，system 升级不需要重编 vendor 进程</li>
+<li><strong>版本化治理</strong>：<code>-V1-ndk</code> 后缀 + <code>update-api</code> &#x2F; <code>freeze-api</code> 冻结流程都围绕它设计</li>
+<li><strong>VINTF 集成</strong>：<code>@VintfStability</code> 标记由 NDK 绑定携带 —— 第三节的强制校验就是针对这类接口</li>
+<li>cpp 后端留给平台内部历史代码；java 面向 framework 应用；rust 是新选项</li>
+</ol>
+<h3 id="4-6-工程实践建议"><a href="#4-6-工程实践建议" class="headerlink" title="4.6 工程实践建议"></a>4.6 工程实践建议</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">backend: &#123;</span><br><span class="line">    cpp:  &#123; enabled: false &#125;,   <span class="comment"># 不需要 libbinder 变体</span></span><br><span class="line">    java: &#123; enabled: false &#125;,   <span class="comment"># 纯 C++ vendor 服务用不上（可选）</span></span><br><span class="line">    rust: &#123; enabled: false &#125;,   <span class="comment"># 同上（可选）</span></span><br><span class="line">    <span class="comment"># ndk 必须保持默认 true，关了就没有 BnMyService 和链接库</span></span><br><span class="line">&#125;,</span><br></pre></td></tr></table></figure>
+
+<h2 id="五、binder-线程池：程序建池、库复用"><a href="#五、binder-线程池：程序建池、库复用" class="headerlink" title="五、binder 线程池：程序建池、库复用"></a>五、binder 线程池：程序建池、库复用</h2><h3 id="5-1-核心模式"><a href="#5-1-核心模式" class="headerlink" title="5.1 核心模式"></a>5.1 核心模式</h3><p>binder 线程池在一个进程内只需要（也建议只）配置一次：<strong>由主程序在启动时统一建池，各服务库检查后复用；库代码仅在发现进程内没有池时才兜底自建</strong>。这是 <code>libbinder_ndk</code> 头文件中明确的设计约定：</p>
+<blockquote>
+<p>Usually, you should use this in a <strong>library</strong> to abort if the threadpool is not started.<br><strong>Programs should configure binder threadpools once at the beginning.</strong></p>
+</blockquote>
+<h3 id="5-2-时序：QTI-主程序先建池"><a href="#5-2-时序：QTI-主程序先建池" class="headerlink" title="5.2 时序：QTI 主程序先建池"></a>5.2 时序：QTI 主程序先建池</h3><p>QTI <code>main()</code>（<code>primary-hal/hal/service/Service.cpp</code>）：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">ABinderProcess_setThreadPoolMaxThreadCount</span>(<span class="number">16</span>);</span><br><span class="line"><span class="built_in">ABinderProcess_startThreadPool</span>();      <span class="comment">// L117 ← 池在这里就起了</span></span><br><span class="line">registerAvailableInterfaces();         <span class="comment">// L119 ← 之后才 dlopen 各个服务库</span></span><br><span class="line">...</span><br><span class="line"><span class="built_in">ABinderProcess_joinThreadPool</span>();       <span class="comment">// 主线程也加入池</span></span><br></pre></td></tr></table></figure>
+
+<p>调用链：<code>main()</code> → <code>registerAvailableInterfaces()</code> → dlopen → <code>registerServices()</code> → 各服务注册。<br>因此服务库代码执行到注册逻辑时，进程内已经有 16 个线程的池在运行，服务由主程序的池统一调度。</p>
+<h3 id="5-3-库侧标准写法"><a href="#5-3-库侧标准写法" class="headerlink" title="5.3 库侧标准写法"></a>5.3 库侧标准写法</h3><p>库在注册服务前应检查并复用已有池，没有才自建（兜底）：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (!<span class="built_in">ABinderProcess_isThreadPoolStarted</span>()) &#123;</span><br><span class="line">    <span class="built_in">ALOGI</span>(<span class="string">&quot;No AIDL binder thread pool can be reused, starting new one...&quot;</span>);</span><br><span class="line">    <span class="function">std::thread <span class="title">mainThread</span><span class="params">([]() &#123;</span></span></span><br><span class="line"><span class="params"><span class="function">        ABinderProcess_setThreadPoolMaxThreadCount(<span class="number">14</span>);</span></span></span><br><span class="line"><span class="params"><span class="function">        ABinderProcess_startThreadPool();</span></span></span><br><span class="line"><span class="params"><span class="function">        ABinderProcess_joinThreadPool();</span></span></span><br><span class="line"><span class="params"><span class="function">    &#125;)</span></span>;</span><br><span class="line">    mainThread.<span class="built_in">detach</span>();</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 之后再执行 AServiceManager_addService(...)</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-4-API-语义"><a href="#5-4-API-语义" class="headerlink" title="5.4 API 语义"></a>5.4 API 语义</h3><ul>
+<li><code>ABinderProcess_isThreadPoolStarted</code> 是 Android 14（U，<code>LIBBINDER_NDK34</code>）起公开的 API</li>
+<li>实现（<code>frameworks/native/libs/binder/ndk/process.cpp</code>）：<br><code>return ProcessState::self()-&gt;isThreadPoolStarted();</code></li>
+<li>像 <code>audiohalservice.qti</code> 这类主程序已建池的进程，库内兜底分支不会走到，属正常现象</li>
+</ul>
+<h2 id="六、MyService-交付物与部署清单"><a href="#六、MyService-交付物与部署清单" class="headerlink" title="六、MyService 交付物与部署清单"></a>六、MyService 交付物与部署清单</h2><h3 id="6-1-集成全貌"><a href="#6-1-集成全貌" class="headerlink" title="6.1 集成全貌"></a>6.1 集成全貌</h3><p><strong>命名三要素</strong>：package&#x2F;module <code>vendor.gwm.myservice</code> · 接口 <code>IMyService</code> · 实例 <code>IMyService/default</code></p>
+<p><strong>新增 9 个文件</strong>（<code>vendor/gwm/interfaces/impl/audio/MyService/</code>）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">aidl/Android.bp                              # aidl_interface 定义</span><br><span class="line">aidl/vendor/gwm/myservice/IMyService.aidl    # 接口（@VintfStability）</span><br><span class="line">impl/Android.mk                              # libMyService.androidmk</span><br><span class="line">impl/include/MyService.h                     # BnMyService 子类</span><br><span class="line">impl/src/MyService.cpp                       # 注册 + 实现</span><br><span class="line">impl/my-service-manifest.xml                 # VINTF fragment</span><br><span class="line">impl/my-service-compatibility.xml            # FCM（framework 兼容矩阵）</span><br><span class="line">impl/sepolicy/service_contexts               # 服务名 → hal_audio_service</span><br><span class="line">impl/sepolicy/my-service.te                  # binder_call 规则</span><br></pre></td></tr></table></figure>
+
+<p><strong>修改 4 个文件</strong>：<code>ModulePrimary.h/.cpp</code>（注册入口）、<code>hal/core/Android.mk</code>（链接新库）、<code>audio_install.mk</code>（PRODUCT_PACKAGES &#x2F; sepolicy &#x2F; FCM 接线）</p>
+<h3 id="6-2-设备端部署清单（手动迭代时）"><a href="#6-2-设备端部署清单（手动迭代时）" class="headerlink" title="6.2 设备端部署清单（手动迭代时）"></a>6.2 设备端部署清单（手动迭代时）</h3><p><strong>核心库（3 个，缺一不可）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>构建产物</th>
+<th>车机路径</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>vendor/lib64/libMyService.androidmk.so</code></td>
+<td><code>/vendor/lib64/</code></td>
+<td>服务实现库</td>
+</tr>
+<tr>
+<td><code>vendor/lib64/vendor.gwm.myservice-V1-ndk.so</code></td>
+<td><code>/vendor/lib64/</code></td>
+<td>AIDL 生成库（NDK 后端）</td>
+</tr>
+<tr>
+<td><code>vendor/lib64/hw/libaudiocorehal.qti.so</code></td>
+<td><code>/vendor/lib64/hw/</code></td>
+<td>注册入口所在（更新）；缺了会 dlopen 失败 → 整车无音频</td>
+</tr>
+</tbody></table>
+<p><strong>清单与策略</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>车机路径</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>my-service-manifest.xml</code></td>
+<td><code>/vendor/etc/vintf/manifest/</code></td>
+<td>VINTF 声明（漏推 → 第三节的拒绝注册）</td>
+</tr>
+<tr>
+<td><code>vendor_service_contexts</code></td>
+<td><code>/vendor/etc/selinux/</code></td>
+<td>服务名 → label（复用 <code>hal_audio_service</code>）</td>
+</tr>
+<tr>
+<td><code>precompiled_sepolicy</code></td>
+<td><code>/vendor/etc/selinux/</code></td>
+<td>含 my-service.te 规则</td>
+</tr>
+<tr>
+<td>FCM（<code>compatibility_matrix.device.xml</code>）</td>
+<td><code>/system/etc/vintf/</code></td>
+<td>仅当客户端在 system&#x2F;framework 侧时需要</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-构建命令"><a href="#6-3-构建命令" class="headerlink" title="6.3 构建命令"></a>6.3 构建命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 首次修改 .aidl 后必须先跑（生成 current/ 快照）</span></span><br><span class="line">m vendor.gwm.myservice-update-api</span><br><span class="line"></span><br><span class="line"><span class="comment"># 增量验证</span></span><br><span class="line">m libMyService.androidmk libaudiocorehal.qti</span><br><span class="line"></span><br><span class="line"><span class="comment"># 上机定版前（冻结为 V1，之后模块名保持不变）</span></span><br><span class="line">m vendor.gwm.myservice-freeze-api</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-4-命名规律速记"><a href="#6-4-命名规律速记" class="headerlink" title="6.4 命名规律速记"></a>6.4 命名规律速记</h3><ul>
+<li>实现库：<code>libMyService.androidmk.so</code>（本工程惯例，Android.mk 构建）</li>
+<li>AIDL 库：<code>vendor.gwm.myservice-V1-ndk.so</code>（<code>-V&lt;版本&gt;-&lt;后端&gt;</code> 后缀）</li>
+<li>服务名：<code>&lt;package&gt;.&lt;接口&gt;/&lt;实例&gt;</code> &#x3D; <code>vendor.gwm.myservice.IMyService/default</code></li>
+</ul>
+<h2 id="附录：关键源码索引"><a href="#附录：关键源码索引" class="headerlink" title="附录：关键源码索引"></a>附录：关键源码索引</h2><table>
+<thead>
+<tr>
+<th>文件</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>frameworks/native/cmds/servicemanager/ServiceManager.cpp</code></td>
+<td>addService 校验链（SELinux → VINTF → 注册）</td>
+</tr>
+<tr>
+<td><code>frameworks/native/cmds/servicemanager/Access.cpp</code></td>
+<td>service_contexts 标签查找与 SELinux 判定</td>
+</tr>
+<tr>
+<td><code>frameworks/native/libs/binder/Stability.cpp</code></td>
+<td><code>requiresVintfDeclaration</code>（@VintfStability 判定）</td>
+</tr>
+<tr>
+<td><code>frameworks/native/libs/binder/ndk/process.cpp</code></td>
+<td><code>ABinderProcess_*</code>（线程池 API 实现）</td>
+</tr>
+<tr>
+<td><code>frameworks/native/libs/binder/ndk/include_platform/android/binder_process.h</code></td>
+<td>线程池 API 设计意图（程序建池、库复用）</td>
+</tr>
+<tr>
+<td><code>system/tools/aidl/build/aidl_interface.go</code></td>
+<td>各后端默认值（L552-581 默认全开）</td>
+</tr>
+<tr>
+<td><code>vendor/qcom/opensource/audio-hal-ar/primary-hal/hal/service/Service.cpp</code></td>
+<td>QTI AHAL 主程序：建池 → dlopen 注册 → join</td>
+</tr>
+<tr>
+<td><code>vendor/qcom/opensource/audio-hal-ar/primary-hal/hal/service/ConfigManager.cpp</code></td>
+<td>板级 <code>vendor_audio_interfaces.xml</code> 解析</td>
+</tr>
+<tr>
+<td><code>vendor/gwm/interfaces/impl/audio/AutomotiveAudioControl/default/Service.cpp</code></td>
+<td><code>registerServices</code> &#x2F; 单服务注册范例</td>
+</tr>
+<tr>
+<td><code>vendor/gwm/interfaces/impl/audio/MyService/impl/src/MyService.cpp</code></td>
+<td>线程池复用 + addService 范式</td>
+</tr>
+</tbody></table>
+
+      
+    </div>
+
+    
+
+    
+
+    
+    <div class="article-info article-info-index">
+      
+      
+	<div class="article-tag tagcloud">
+		<ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/AIDL/" rel="tag">AIDL</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Audio-HAL/" rel="tag">Audio HAL</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Binder/" rel="tag">Binder</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/VINTF/" rel="tag">VINTF</a></li></ul>
+	</div>
+
+      
+	<div class="article-category tagcloud">
+	<a class="article-category-link" href="/categories/Android/">Android</a>
+	</div>
+
+
+      <div class="clearfix"></div>
+    </div>
+      
+    
+  </div>
+  
+</article>
+
   
     <article id="post-理解aidl-在audio-FW-HAL中的应用" class="article article-type-post" itemscope itemprop="blogPost">
   
