@@ -68,21 +68,21 @@
 			<h2 class="left-block-title">标签</h2>
 			<div class="widget tagcloud" id="js-tagcloud">
 				
-					<a href="/tags/AKM7783/" class="color1">AKM7783<span class="tag-count">1</span></a>
+					<a href="/tags/AIDL/" class="color1">AIDL<span class="tag-count">2</span></a>
 				
-					<a href="/tags/DSP/" class="color2">DSP<span class="tag-count">1</span></a>
+					<a href="/tags/Audio-HAL/" class="color2">Audio HAL<span class="tag-count">2</span></a>
 				
-					<a href="/tags/Audio/" class="color3">Audio<span class="tag-count">1</span></a>
+					<a href="/tags/Binder/" class="color3">Binder<span class="tag-count">2</span></a>
 				
-					<a href="/tags/TDM/" class="color4">TDM<span class="tag-count">1</span></a>
+					<a href="/tags/FMQ/" class="color4">FMQ<span class="tag-count">1</span></a>
 				
-					<a href="/tags/AIDL/" class="color5">AIDL<span class="tag-count">2</span></a>
+					<a href="/tags/AKM7783/" class="color5">AKM7783<span class="tag-count">1</span></a>
 				
-					<a href="/tags/Audio-HAL/" class="color1">Audio HAL<span class="tag-count">2</span></a>
+					<a href="/tags/DSP/" class="color1">DSP<span class="tag-count">1</span></a>
 				
-					<a href="/tags/Binder/" class="color2">Binder<span class="tag-count">2</span></a>
+					<a href="/tags/Audio/" class="color2">Audio<span class="tag-count">1</span></a>
 				
-					<a href="/tags/FMQ/" class="color3">FMQ<span class="tag-count">1</span></a>
+					<a href="/tags/TDM/" class="color3">TDM<span class="tag-count">1</span></a>
 				
 					<a href="/tags/VINTF/" class="color4">VINTF<span class="tag-count">1</span></a>
 				
@@ -208,19 +208,19 @@
 
     <div class="article-entry" itemprop="articleBody">
       
-        <p>这两天学习了一下V4 项目上的 DSP AKM7783，下面就记录下怎么操作控制这个DSP的。</p>
+        <p>这两天学习了项目上的 DSP AKM7783，下面就记录下怎么操作控制这个DSP的。</p>
 <p>AKM7783 提供了两个用于操作DSP 内核的DSP 的GUI 工具的，一个是配置DSP内核里面的数据路由通路的。</p>
 <p><img src="/images/assets/001.png"></p>
 <p><img src="/images/assets/002.png"></p>
 <p>另外一个是用于配置clock 以及外部的 SDIN脚到 内部核的IN引脚，以及OUT口到对应SDOUT 口的 path 。</p>
 <p><img src="/images/assets/003.png"></p>
 <p><img src="/images/assets/004.png"></p>
-<p>这个工具需要打开一个txt 文件，里面全是配置的寄存器以及对于寄存器的地址，在V4项目上该目录地址在：</p>
-<p>&#x2F;qnx&#x2F;workspace&#x2F;modules&#x2F;bsp&#x2F;apps&#x2F;qnx_ap&#x2F;AMSS&#x2F;multimedia&#x2F;audio&#x2F;nobo_audio&#x2F;config&#x2F;DspAudioPathScript.txt</p>
+<p>这个工具需要打开一个txt 文件，里面全是配置的寄存器以及对于寄存器的地址，在项目上该目录地址在：</p>
+<p>&#x2F;qnx&#x2F;workspace&#x2F;modules&#x2F;bsp&#x2F;apps&#x2F;qnx_ap&#x2F;AMSS&#x2F;multimedia&#x2F;audio&#x2F;xxxx_audio&#x2F;config&#x2F;DspAudioPathScript.txt</p>
 <p><img src="/images/assets/005.png"></p>
-<p>该DSP 提供了有两个HIFI 核，以及4个DSP核，目前在V4项目上用的就是4个DSP 核，即 DSP3、DSP4、DSP5、DSP6，具体每个核之间的区别在哪里，可以对应的去看AK7783 的DataSheet.</p>
+<p>该DSP 提供了有两个HIFI 核，以及4个DSP核，目前在项目上用的就是4个DSP 核，即 DSP3、DSP4、DSP5、DSP6，具体每个核之间的区别在哪里，可以对应的去看AK7783 的DataSheet.</p>
 <p><img src="/images/assets/006.png"></p>
-<p>这个图就是7783 的整体架构图，在V4项目上就用到了在框里面圈起来的内核。</p>
+<p>这个图就是7783 的整体架构图，在项目上就用到了在框里面圈起来的内核。</p>
 <p>需要提示一点的是很重要的一点，后续我们提到的像 SDIN1,SDOUT1 它在芯片上都是有对应的输入输出端口的</p>
 <p><img src="/images/assets/007.png"></p>
 <p><img src="/images/assets/008.png"></p>
@@ -229,7 +229,7 @@
 <p>以及对应的时钟线，这个在我们下面的clock 配置也是比较重要的。</p>
 <p>当然还有其它比较重要的端口，目前我们先关注这几个后面遇到了再做详细的记录。</p>
 <p><img src="/images/assets/010.png"></p>
-<p>目前V4上面是采用的是外部时钟的方式，来供给DSP 进行工作，然后生成对应的 BICKx (x&#x3D;A~H) 参考时钟，这个在SDIN 引脚配置的时候会很重要。</p>
+<p>目前项目上面是采用的是外部时钟的方式，来供给DSP 进行工作，然后生成对应的 BICKx (x&#x3D;A~H) 参考时钟，这个在SDIN 引脚配置的时候会很重要。</p>
 <p>系统时钟设置：</p>
 <p><img src="/images/assets/011.png"></p>
 <p><img src="/images/assets/012.png"></p>
@@ -259,7 +259,7 @@
 <p>AHCLK &#x3D; 98.304 MHZ <strong>SDGCLK &#x3D; 49.152 MHZ</strong></p>
 <p><img src="/images/assets/022.png"></p>
 <p><strong>上面的PLL mode setting 就是在进行倍频的设置，将我输入给到XTI 的frequency 倍频到491.52MHZ 对应设置PLM、PLN 的值，对应的就是mode 9</strong></p>
-<p>下面直接记录一下这个clock 对应的配置，GUI 该怎么配置，对应到V4项目上是怎么使用的。</p>
+<p>下面直接记录一下这个clock 对应的配置，GUI 该怎么配置，对应到项目上是怎么使用的。</p>
 <p><img src="/images/assets/023.png"></p>
 <p>SYNC1 的时钟：</p>
 <p><img src="/images/assets/024.png"></p>
@@ -271,7 +271,7 @@
 <p><img src="/images/assets/026.png"></p>
 <p><img src="/images/assets/027.png"></p>
 <p>这里就是在选择SDIN1 的输入时钟的选择 它选择了 LR&#x2F;BICKA，就表示SDIN1 的数据上可以传输 TDM16 32bit 48k 的数据了</p>
-<p>SDIN1 在V4项目上前6个slot 用来做为Digital MIC 的输入了，其它slot没有使用。</p>
+<p>SDIN1 在项目上前6个slot 用来做为Digital MIC 的输入了，其它slot没有使用。</p>
 <p>SYNC2 的时钟：</p>
 <p><img src="/images/assets/028.png"></p>
 <p>SYNC2 的时钟(48k) &#x3D; <strong>(SDGCLK)49.152 MHZ</strong>÷ 1&#x2F;16 ÷ 64fs</p>
@@ -344,8 +344,8 @@
 <p>编译手顺：</p>
 <p><img src="/images/assets/061.png"></p>
 <p>把生成的这个ExternalAmp_Panoramic20ch 替换到 qnx&#x2F;workspace&#x2F;modules&#x2F;tuningForAudio&#x2F;4.0&#x2F;base&#x2F;ExternalAmp_Panoramic20ch 然后直接make ,会生成 ExternalAmp_Panoramic20ch_Base.json ExternalAmp_Panoramic20ch_Data.h 这两个文件，然后把这两个文件分别替换到以下对应的目录下：</p>
-<p>qnx&#x2F;workspace&#x2F;modules&#x2F;bsp&#x2F;apps&#x2F;qnx_ap&#x2F;AMSS&#x2F;multimedia&#x2F;audio&#x2F;nobo_audio&#x2F;extaudiodriver&#x2F;config&#x2F;tuning&#x2F;ExternalAmp_Panoramic20ch_Base.json</p>
-<p>qnx&#x2F;workspace&#x2F;modules&#x2F;bsp&#x2F;apps&#x2F;qnx_ap&#x2F;AMSS&#x2F;multimedia&#x2F;audio&#x2F;nobo_audio&#x2F;extaudiodriver&#x2F;modules&#x2F;hardware_driver&#x2F;dsp_driver&#x2F;RamData&#x2F;inc&#x2F;ExternalAmp_Panoramic20ch_Data.h</p>
+<p>qnx&#x2F;workspace&#x2F;modules&#x2F;bsp&#x2F;apps&#x2F;qnx_ap&#x2F;AMSS&#x2F;multimedia&#x2F;audio&#x2F;XXXX_audio&#x2F;extaudiodriver&#x2F;config&#x2F;tuning&#x2F;ExternalAmp_Panoramic20ch_Base.json</p>
+<p>qnx&#x2F;workspace&#x2F;modules&#x2F;bsp&#x2F;apps&#x2F;qnx_ap&#x2F;AMSS&#x2F;multimedia&#x2F;audio&#x2F;XXXX_audio&#x2F;extaudiodriver&#x2F;modules&#x2F;hardware_driver&#x2F;dsp_driver&#x2F;RamData&#x2F;inc&#x2F;ExternalAmp_Panoramic20ch_Data.h</p>
 
       
     </div>
